@@ -1,0 +1,151 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{amsmath, amssymb}
+\usepackage{natbib}
+\usepackage{booktabs}
+
+\title{STAT 405 Project Proposal:\\Bayesian Modeling of Wildfire Burn Area in Canada}
+\author{Gunbir Singh Baveja \\ Student ID: 16230336}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+This project applies Bayesian inference to model wildfire burn area across Canada using historical fire records from the Canadian National Fire Database (NFDB). The central question is: \textit{how do seasonal and regional factors influence the size of wildfires, and can a hierarchical model that partially pools information across provinces outperform a simpler pooled regression?}
+
+Wildfires are a growing concern in Canada, with recent years seeing record-breaking fire seasons. Understanding the drivers of fire size has direct implications for resource allocation and risk management. A Bayesian approach is natural here because it lets us quantify uncertainty in our predictions, incorporate prior domain knowledge, and compare models in a principled way.
+
+\section{Repository}
+
+All code and data are available at: \url{https://github.com/sheeerio/stat405-final-project}
+
+\section{Data}
+
+\subsection{Main dataset: Canadian National Fire Database (NFDB)}
+
+The NFDB fire point dataset is maintained by Natural Resources Canada and contains individual wildfire records reported by provincial and territorial fire management agencies, as well as Parks Canada. Each record includes the fire's location (latitude/longitude), date, reported cause, and final burn area in hectares.
+
+\medskip
+\noindent URL: \url{https://cwfis.cfs.nrcan.gc.ca/datamart}
+
+\medskip
+\noindent The dataset contains 27 columns. The key variables for this project are:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Column} & \textbf{Type} & \textbf{Description} \\
+\midrule
+\texttt{SIZE\_HA} & numeric & Final fire size in hectares (response variable) \\
+\texttt{YEAR} & integer & Year of fire \\
+\texttt{MONTH} & integer & Month of fire \\
+\texttt{CAUSE} & factor & H (human), L (lightning), etc. \\
+\texttt{SRC\_AGENCY} & factor & Reporting province/agency \\
+\texttt{LATITUDE} & numeric & Latitude of fire location \\
+\texttt{LONGITUDE} & numeric & Longitude of fire location \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Figure~\ref{fig:size} shows the distribution of fire sizes on a log scale, and Figure~\ref{fig:yearly} shows the number of recorded fires per year.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{data/fire_size_distribution.png}
+\caption{Distribution of wildfire burn area (log-scaled hectares). The heavy right tail motivates a log-normal likelihood.}
+\label{fig:size}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{data/fires_per_year.png}
+\caption{Number of wildfires per year in Canada as recorded in the NFDB.}
+\label{fig:yearly}
+\end{figure}
+
+\subsection{Climate covariates}
+
+I will supplement the fire data with monthly temperature and precipitation records from Environment and Climate Change Canada's Adjusted and Homogenized Canadian Climate Data (AHCCD). Fire records will be matched to regional climate summaries by province and month/year.
+
+\subsection{Backup dataset}
+
+If the climate data integration proves too cumbersome, I will fall back to the U.S.\ ``1.88 Million Wildfires'' dataset available on Kaggle (\url{https://www.kaggle.com/datasets/rtatman/188-million-us-wildfires}), which includes fire size, cause, and location in a single clean SQLite database. Climate data from NOAA would serve as covariates in that case. The modeling approach would remain the same.
+
+\section{Scientific Questions}
+
+The project will address two main questions:
+
+\begin{enumerate}
+    \item \textbf{What predicts fire size?} Given month, cause (human vs.\ lightning), and province, how well can we predict the burn area of a wildfire? Are lightning-caused fires systematically larger than human-caused ones after controlling for season and region?
+    \item \textbf{Does partial pooling across provinces help?} Canada's provinces differ enormously in terrain, vegetation, and fire management practices. A hierarchical model that shares information across provinces while allowing province-specific effects should produce better-calibrated predictions than either a fully pooled or unpooled model.
+\end{enumerate}
+
+\section{Methodology}
+
+\subsection{Model 1: Simple log-normal regression}
+
+Fire sizes are strictly positive and heavily right-skewed, so a log-normal likelihood is a natural starting point:
+%
+\begin{align*}
+\log(\texttt{SIZE\_HA}_i) &\sim \text{Normal}(\mu_i,\; \sigma^2) \\
+\mu_i &= \beta_0 + \beta_1 \cdot \texttt{MONTH}_i + \beta_2 \cdot \texttt{CAUSE}_i
+\end{align*}
+%
+with weakly informative priors on the $\beta$ coefficients and $\sigma$. This serves as the baseline.
+
+\subsection{Model 2: Hierarchical model with province-level effects}
+
+The second model introduces varying intercepts (and potentially varying slopes) by province:
+%
+\begin{align*}
+\log(\texttt{SIZE\_HA}_i) &\sim \text{Normal}(\mu_i,\; \sigma^2) \\
+\mu_i &= \alpha_{j[i]} + \beta_1 \cdot \texttt{MONTH}_i + \beta_2 \cdot \texttt{CAUSE}_i \\
+\alpha_j &\sim \text{Normal}(\mu_\alpha,\; \sigma_\alpha^2)
+\end{align*}
+%
+where $j[i]$ indexes the province of fire $i$. The hyperparameters $\mu_\alpha$ and $\sigma_\alpha$ control the degree of pooling. This is the more substantively interesting model and demonstrates hierarchical Bayesian modeling.
+
+\subsection{Posterior computation}
+
+I will compute the posterior using two methods and compare them:
+
+\begin{enumerate}
+    \item \textbf{Hamiltonian Monte Carlo (NUTS)} via Stan's \texttt{sampling()} function. This is the gold-standard approach and will serve as the reference posterior.
+    \item \textbf{Variational inference} via Stan's \texttt{vb()} function (ADVI). This gives a fast Gaussian approximation to the posterior, which I will compare against the NUTS results to evaluate the quality of the approximation.
+\end{enumerate}
+
+\subsection{Diagnostics and validation}
+
+The comparison between methods and models will include:
+
+\begin{itemize}
+    \item MCMC diagnostics: $\hat{R}$, effective sample size, divergent transitions
+    \item Visual comparison of NUTS vs.\ VI marginal posteriors
+    \item LOO-CV (via the \texttt{loo} package) to compare Model 1 vs.\ Model 2
+    \item Posterior predictive checks: simulate fire sizes from the fitted model and compare to the observed distribution
+    \item Prior sensitivity analysis: compare results under different prior choices for $\sigma_\alpha$ (the pooling parameter)
+\end{itemize}
+
+\section{Timeline}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Week} & \textbf{Task} \\
+\midrule
+Week 1 & Data cleaning, EDA, merge climate covariates \\
+Week 2 & Implement and fit Model 1 in Stan \\
+Week 3 & Implement Model 2, run NUTS and VI, diagnostics \\
+Week 4 & Model comparison, posterior predictive checks, write-up \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\bibliographystyle{plainnat}
+% \bibliography{references}  % uncomment if you add a .bib file
+
+\end{document}
