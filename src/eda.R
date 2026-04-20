@@ -16,6 +16,7 @@ df <- nfdb %>%
     LONGITUDE = coords[, 1],
     LATITUDE  = coords[, 2]
   ) %>%
+  filter(!is.na(YEAR), YEAR >= 1959, YEAR <= 2024) %>%
   filter(!is.na(SIZE_HA), SIZE_HA > 0)
 
 cat("Rows after filtering:", nrow(df), "\n")
@@ -24,7 +25,7 @@ cat("Rows after filtering:", nrow(df), "\n")
 df <- df %>%
   mutate(CAUSE_LABEL = case_when(
     CAUSE == "H"  ~ "Human",
-    CAUSE == "L"  ~ "Lightning",
+    CAUSE == "N"  ~ "Lightning",
     CAUSE == "H-PB" ~ "Prescribed Burn",
     TRUE          ~ "Other/Unknown"
   ))
@@ -94,7 +95,7 @@ annual <- df %>%
     median_size    = median(SIZE_HA, na.rm = TRUE),
     n_large        = sum(SIZE_HA >= 10000, na.rm = TRUE),
     pct_large      = mean(SIZE_HA >= 10000, na.rm = TRUE) * 100,
-    mean_lat       = mean(LATITUDE, na.rm = TRUE),
+    mean_lat       = mean(LATITUDE[is.finite(LATITUDE)], na.rm = TRUE),
     mean_month     = mean(MONTH, na.rm = TRUE),
     .groups = "drop"
   )
@@ -255,3 +256,4 @@ summary_by_decade <- df %>%
   )
 
 print(summary_by_decade)
+
